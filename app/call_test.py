@@ -19,16 +19,10 @@ def make_test_call():
     client = Client(account_sid, auth_token)
 
     call = client.calls.create(
-        to=dev_number,
-        from_=twilio_number,
-        twiml="""
-        <Response>
-            <Say>
-                Hello. This is a test call from my AI patient project.
-                The development call is working.
-            </Say>
-        </Response>
-        """,
+    to=dev_number,
+    from_=twilio_number,
+    url="https://webhooks.twilio.com/v1/Voice/Template/voice_text_to_speech",
+
     )
 
     print(f"Call started successfully.")
