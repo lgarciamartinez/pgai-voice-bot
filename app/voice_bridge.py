@@ -1,9 +1,13 @@
+import asyncio
 import json
 
+import websockets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 
 app = FastAPI()
+
+REALTIME_URL = "ws://127.0.0.1:8765"
 
 
 @app.get("/health")
@@ -15,34 +19,86 @@ def health_check():
 async def media_stream(websocket: WebSocket):
     await websocket.accept()
 
-    print("WebSocket connected")
+    print("Twilio WebSocket connected")
 
-    try:
-        while True:
-            message = await websocket.receive_text()
+    realtime = await websockets.connect(REALTIME_URL)
+    stream_sid = None
+
+    async def twilio_to_realtime():
+        try:
+            while True:
+                message = await websocket.receive_text()
+                data = json.loads(message)
+
+                event = data.get("event")
+
+                if event == "connected":
+                    print("Twilio stream connected")
+
+                elif event == "start":
+                     start = data.get("start", {})
+                     stream_sid = start.get("streamSid")
+
+                     print("Stream started")
+                     print(f"Call SID: {start.get('callSid')}")
+                     print(f"Stream SID: {stream_sid}")
+
+                elif event == "media":
+                    payload = data.get("media", {}).get("payload")
+
+                    if payload:
+                        await realtime.send(
+                            json.dumps(
+                                {
+                                    "type": "input_audio_buffer.append",
+                                    "audio": payload,
+                                }
+                            )
+                        )
+
+                elif event == "stop":
+                    print("Stream stopped")
+                    break
+
+        except WebSocketDisconnect:
+            print("Twilio WebSocket disconnected")
+
+    async def realtime_to_twilio():
+        async for message in realtime:
             data = json.loads(message)
 
-            event = data.get("event")
+            if data.get("type") == "response.audio.delta":
+                audio = data.get("delta")
 
-            if event == "connected":
-                print("Twilio stream connected")
+                if audio:
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "event": "media",
+                                "streamSid": stream_sid,
+                                "media": {
+                                    "payload": audio,
+                                },
+                            }
+                        )
+                    )
 
-            elif event == "start":
-                start = data.get("start", {})
-                print("Stream started")
-                print(f"Call SID: {start.get('callSid')}")
-                print(f"Stream SID: {start.get('streamSid')}")
+    twilio_task = asyncio.create_task(twilio_to_realtime())
+    realtime_task = asyncio.create_task(realtime_to_twilio())
 
-            elif event == "media":
-                media = data.get("media", {})
-                payload = media.get("payload")
+    try:
+        done, pending = await asyncio.wait(
+            [twilio_task, realtime_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
 
-                if payload:
-                    print(f"Received audio chunk: {len(payload)} characters")
+        for task in pending:
+            task.cancel()
 
-            elif event == "stop":
-                print("Stream stopped")
-                break
+        await asyncio.gather(
+            *pending,
+            return_exceptions=True,
+        )
 
-    except WebSocketDisconnect:
-        print("WebSocket disconnected")
+    finally:
+        await realtime.close()

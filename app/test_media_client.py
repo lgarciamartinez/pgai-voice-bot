@@ -39,8 +39,26 @@ async def test_media_stream():
         for message in messages:
             await websocket.send(json.dumps(message))
             print(f"Sent: {message['event']}")
-            await asyncio.sleep(0.5)
 
+            if message["event"] == "media":
+                try:
+                    response = await asyncio.wait_for(
+                        websocket.recv(),
+                        timeout=2.0,
+                    )
+
+                    response_data = json.loads(response)
+
+                    print(f"Received: {response_data['event']}")
+                    print(
+                        "Returned audio:",
+                        response_data["media"]["payload"],
+                    )
+
+                except asyncio.TimeoutError:
+                    print("No audio response received.")
+
+            await asyncio.sleep(0.5)
 
 if __name__ == "__main__":
     asyncio.run(test_media_stream())
