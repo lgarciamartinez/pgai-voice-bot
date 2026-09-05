@@ -4,10 +4,18 @@ import json
 import websockets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
+import os
+from app.realtime_client import connect_realtime
+
+from dotenv import load_dotenv
 
 app = FastAPI()
 
-REALTIME_URL = "ws://127.0.0.1:8765"
+load_dotenv()
+
+REALTIME_BACKEND = os.getenv("REALTIME_BACKEND", "fake")
+FAKE_REALTIME_URL = "ws://127.0.0.1:8765"
+SCENARIO_KEY = os.getenv("SCENARIO_KEY", "weekend_request")
 
 
 @app.get("/health")
@@ -21,7 +29,11 @@ async def media_stream(websocket: WebSocket):
 
     print("Twilio WebSocket connected")
 
-    realtime = await websockets.connect(REALTIME_URL)
+    if REALTIME_BACKEND == "openai":
+        realtime = await connect_realtime(SCENARIO_KEY)
+    else:
+        realtime = await websockets.connect(FAKE_REALTIME_URL)
+
     stream_sid = None
 
     async def twilio_to_realtime():
